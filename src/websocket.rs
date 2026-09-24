@@ -1,33 +1,40 @@
 //! Manejo de conexiones WebSocket.
-
+use crate::arguments;
 use crate::audio::spawn_pacat;
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
+use hmac::KeyInit;
 use log::{error, info, warn};
-use std::env::{self};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::tungstenite::Message;
+
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+type HmacSha256 = Hmac<Sha256>;
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut mac = HmacSha256::new_from_slice(key).unwrap();
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
 
 /// Maneja una conexión WebSocket individual.
 ///
 /// Recibe mensajes binarios y los escribe en el stdin del proceso `pacat`.
 /// Si la conexión se cierra o hay un error, termina el proceso hijo.
-pub async fn handle_connection(stream: TcpStream, peer: SocketAddr) -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let password = match args.get(1) {
-        Some(p) => p.clone(),
-        None => "".to_string(),
-    };
-
-    info!("Nueva conexión desde: {}", peer);
-    println!("new connection");
-    // Aceptar el handshake WebSocket.
+pub async fn handle_connection<S>(stream: S, peer: SocketAddr, pin: Arc<String>) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let ws_stream = tokio_tungstenite::accept_async(stream)
         .await
         .context("Error durante el handshake WebSocket")?;
-    info!("Conexión WebSocket establecida con {}", peer);
+    info!("Nueva conexión desde: {}", peer);
+    // Aceptar el handshake WebSocket.
 
     // Lanzar pacat para esta conexión.
     let (mut child, mut child_stdin) = spawn_pacat().await?;
@@ -36,6 +43,36 @@ pub async fn handle_connection(stream: TcpStream, peer: SocketAddr) -> Result<()
     // Dividir el stream WebSocket en sink y stream.
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
+    if arguments::get("-p".to_string()) {
+        // 1) Enviar challenge
+        let challenge: [u8; 32] = rand::random();
+        ws_sender.send(Message::Binary(challenge.to_vec())).await?;
+
+        // 2) Esperar respuesta del cliente
+        let client_resp = loop {
+            match ws_receiver.next().await {
+                Some(Ok(Message::Binary(data))) if data.len() == 32 => break data,
+                Some(Ok(_)) => continue,
+                _ => return Ok(()),
+            }
+        };
+
+        // 3) Verificar
+        let expected = hmac_sha256(pin.as_bytes(), &challenge);
+        if client_resp != expected {
+            warn!("PIN incorrecto desde {}", peer);
+            let _ = ws_sender.send(Message::Close(None)).await;
+            return Ok(());
+        }
+
+        // 4) Responder al cliente
+        let mut server_data = challenge.to_vec();
+        server_data.extend_from_slice(b"server");
+        let server_resp = hmac_sha256(pin.as_bytes(), &server_data);
+        ws_sender.send(Message::Binary(server_resp)).await?;
+
+        info!("Cliente {} autenticado", peer);
+    }
     // Resultado del bucle: si hay error, se captura y se devuelve.
     let result = async {
         // Procesar mensajes entrantes.
@@ -53,12 +90,6 @@ pub async fn handle_connection(stream: TcpStream, peer: SocketAddr) -> Result<()
                     break;
                 }
                 Ok(Message::Text(text)) => {
-                    if !password.is_empty() && text != password {
-                        let _ = ws_sender.send(Message::Close(None)).await;
-                        let _ = ws_sender.flush().await;
-                        warn!("Cerrando conexion contraseña incorrecta: {}", text);
-                        return Ok(());
-                    }
                     // No esperamos texto, pero lo registramos.
                     warn!("Mensaje de texto inesperado: {:?}", text);
                 }
