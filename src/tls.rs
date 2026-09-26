@@ -13,7 +13,6 @@ const CERT_PATH: &str = "cert.pem";
 const KEY_PATH: &str = "key.pem";
 
 /// Carga la configuración TLS.
-///
 /// Si existen `cert.pem` y `key.pem` en el directorio actual, los usa.
 /// Si no, genera un certificado autofirmado para `localhost`, la IP LAN
 /// indicada, y `127.0.0.1`, y lo guarda en disco para reutilizarlo.
@@ -30,17 +29,18 @@ pub fn load_or_generate_tls_config(lan_ip: &str) -> Result<Arc<ServerConfig>> {
 
     if cert_p.exists() && key_p.exists() {
         info!(
-            "Cargando certificado TLS desde {} y {}",
-            CERT_PATH, KEY_PATH
+            "Cargando certificado TLS desde {:#?} y {:#?}",
+            cert_p, key_p
         );
         (certs, key) = load_from_pem(&cert_p, &key_p)?;
     } else {
+        fs::create_dir_all(base).unwrap();
         info!("Generando certificado autofirmado para LAN...");
         (certs, key) = generate_self_signed(lan_ip)?;
-        save_to_pem(&certs, &key)?;
+        save_to_pem(&certs, &key, cert_p.clone(), key_p.clone())?;
         info!(
-            "Certificado autofirmado guardado en {} y {}",
-            CERT_PATH, KEY_PATH
+            "Certificado autofirmado guardado en {:#?} y {:#?}",
+            cert_p, key_p
         );
     }
 
@@ -89,13 +89,18 @@ fn generate_self_signed(
     Ok((vec![cert_der], key_der))
 }
 
-fn save_to_pem(certs: &[CertificateDer<'static>], key: &PrivateKeyDer<'static>) -> Result<()> {
+fn save_to_pem(
+    certs: &[CertificateDer<'static>],
+    key: &PrivateKeyDer<'static>,
+    certs_p: PathBuf,
+    key_p: PathBuf,
+) -> Result<()> {
     // Certificado
     let mut cert_pem = String::new();
     for cert in certs {
         cert_pem.push_str(&pem_encode_cert(cert));
     }
-    fs::write(CERT_PATH, cert_pem).context("Escribiendo cert.pem")?;
+    fs::write(certs_p, cert_pem).context("Escribiendo cert.pem")?;
 
     // Clave privada (PKCS#8)
     let key_bytes = match key {
@@ -103,7 +108,7 @@ fn save_to_pem(certs: &[CertificateDer<'static>], key: &PrivateKeyDer<'static>) 
         _ => anyhow::bail!("Tipo de clave no soportado para guardar"),
     };
     let key_pem = pem_encode_key(&key_bytes);
-    fs::write(KEY_PATH, key_pem).context("Escribiendo key.pem")?;
+    fs::write(key_p, key_pem).context("Escribiendo key.pem")?;
 
     Ok(())
 }
