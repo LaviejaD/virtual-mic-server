@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
     };
 
     let local_addr = listener.local_addr()?;
+
     println!("===========================================");
     println!(" Servidor WebSocket WSS (TLS) iniciado     ");
     println!(
@@ -57,7 +58,7 @@ async fn main() -> Result<()> {
         local_addr.ip(),
         local_addr.port()
     );
-    if arguments::get("-p".to_string()) {
+    if arguments::exist("-p".to_string()) {
         println!("Ping: {}", pin)
     }
     println!("===========================================");

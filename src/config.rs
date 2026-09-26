@@ -17,6 +17,7 @@ pub const PA_DEVICE: &str = "only-virtual-mic-sink";
 pub fn get_lan_ip() -> Result<IpAddr> {
     local_ip().context("No se pudo determinar la IP local")
 }
+/// Obtener directorio de configuraciones
 pub fn get_config_dir() -> Option<PathBuf> {
     dirs::config_dir()
 }

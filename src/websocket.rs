@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::time::{Duration, timeout};
 use tokio_tungstenite::tungstenite::Message;
 
 use hmac::{Hmac, Mac};
@@ -36,24 +37,38 @@ where
     info!("Nueva conexión desde: {}", peer);
     // Aceptar el handshake WebSocket.
 
-    // Lanzar pacat para esta conexión.
-    let (mut child, mut child_stdin) = spawn_pacat().await?;
-    info!("Proceso pacat lanzado (PID: {})", child.id().unwrap_or(0));
-
     // Dividir el stream WebSocket en sink y stream.
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-    if arguments::get("-p".to_string()) {
+    if arguments::exist("-p".to_string()) {
         // 1) Enviar challenge
         let challenge: [u8; 32] = rand::random();
         ws_sender.send(Message::Binary(challenge.to_vec())).await?;
 
         // 2) Esperar respuesta del cliente
-        let client_resp = loop {
-            match ws_receiver.next().await {
-                Some(Ok(Message::Binary(data))) if data.len() == 32 => break data,
-                Some(Ok(_)) => continue,
-                _ => return Ok(()),
+        const MAX_ATTEMPTS: usize = 5;
+        const PAIR_TIMEOUT: Duration = Duration::from_secs(5);
+        let client_resp = match timeout(PAIR_TIMEOUT, async {
+            let mut attempts = 0;
+            loop {
+                if attempts >= MAX_ATTEMPTS {
+                    return None;
+                }
+                attempts += 1;
+                match ws_receiver.next().await {
+                    Some(Ok(Message::Binary(data))) if data.len() == 32 => return Some(data),
+                    Some(Ok(_)) => continue,
+                    _ => return None,
+                }
+            }
+        })
+        .await
+        {
+            Ok(Some(data)) => data,
+            _ => {
+                warn!("Handshake fallido o timeout con {}", peer);
+                let _ = ws_sender.send(Message::Close(None)).await;
+                return Ok(());
             }
         };
 
@@ -62,6 +77,7 @@ where
         if client_resp != expected {
             warn!("PIN incorrecto desde {}", peer);
             let _ = ws_sender.send(Message::Close(None)).await;
+
             return Ok(());
         }
 
@@ -73,6 +89,10 @@ where
 
         info!("Cliente {} autenticado", peer);
     }
+    // Lanzar pacat para esta conexión.
+    let (mut child, mut child_stdin) = spawn_pacat().await?;
+    info!("Proceso pacat lanzado (PID: {})", child.id().unwrap_or(0));
+
     // Resultado del bucle: si hay error, se captura y se devuelve.
     let result = async {
         // Procesar mensajes entrantes.
