@@ -11,10 +11,12 @@ pub fn exist(txt: String) -> bool {
 pub fn get(txt: String) -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
 
-   let r =   args.iter().position(|arg| arg == &txt)
- .and_then(|index| args.get(index+1));
-match r { 
-Some( e) => Some(e.clone()),
-None=> None
+    let r = args
+        .iter()
+        .position(|arg| arg == &txt)
+        .and_then(|index| args.get(index + 1));
+    match r {
+        Some(e) => Some(e.clone()),
+        None => None,
+    }
 }
- }

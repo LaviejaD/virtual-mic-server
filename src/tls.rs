@@ -13,7 +13,7 @@ const CERT_PATH: &str = "cert.pem";
 const KEY_PATH: &str = "key.pem";
 
 /// Carga la configuración TLS.
-/// Si existen `cert.pem` y `key.pem` en el directorio actual, los usa.
+/// Si existen `cert.pem` y `key.pem` en el directorio de configuracion , los usa.
 /// Si no, genera un certificado autofirmado para `localhost`, la IP LAN
 /// indicada, y `127.0.0.1`, y lo guarda en disco para reutilizarlo.
 pub fn load_or_generate_tls_config(lan_ip: &str) -> Result<Arc<ServerConfig>> {

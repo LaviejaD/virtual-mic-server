@@ -1,7 +1,8 @@
 //! Configuración y utilidades generales.
-use anyhow::{Context, Result};
+use anyhow::Result;
 use dirs;
 use local_ip_address::local_ip;
+use log::error;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
@@ -12,10 +13,16 @@ pub const CHANNELS: u8 = 1;
 pub const PCM_FORMAT: &str = "s16le";
 /// Dispositivo de salida de PulseAudio.
 pub const PA_DEVICE: &str = "only-virtual-mic-sink";
-
-/// Obtiene la dirección IP local (LAN) del sistema.
-pub fn get_lan_ip() -> Result<IpAddr> {
-    local_ip().context("No se pudo determinar la IP local")
+/// puerto por defecto
+pub const PREFERRED_PORT: u16 = 3000;
+pub fn get_lan_ip() -> Result<IpAddr, ()> {
+    match local_ip() {
+        Ok(r) => Ok(r),
+        Err(_) => {
+            error!("Error en obtener la ip local.");
+            return Err(());
+        }
+    }
 }
 /// Obtener directorio de configuraciones
 pub fn get_config_dir() -> Option<PathBuf> {

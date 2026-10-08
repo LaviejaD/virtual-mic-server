@@ -6,7 +6,6 @@ use futures_util::{SinkExt, StreamExt};
 use hmac::KeyInit;
 use log::{error, info, warn};
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::{Duration, timeout};
@@ -27,7 +26,7 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
 ///
 /// Recibe mensajes binarios y los escribe en el stdin del proceso `pacat`.
 /// Si la conexión se cierra o hay un error, termina el proceso hijo.
-pub async fn handle_connection<S>(stream: S, peer: SocketAddr, pin: Arc<String>) -> Result<()>
+pub async fn handle_connection<S>(stream: S, peer: SocketAddr, pin: String) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -39,8 +38,8 @@ where
 
     // Dividir el stream WebSocket en sink y stream.
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
-
-    if arguments::exist("-p".to_string()) {
+    // verifica que exista pin para el handshake
+    if arguments::exist("-p".to_string()) || !pin.is_empty() {
         // 1) Enviar challenge
         let challenge: [u8; 32] = rand::random();
         ws_sender.send(Message::Binary(challenge.to_vec())).await?;
