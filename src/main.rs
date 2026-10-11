@@ -11,6 +11,9 @@ mod websocket;
 use anyhow::Result;
 
 fn main() -> Result<(), ()> {
+    unsafe {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     env_logger::init();
     if arguments::exist("-t".to_string()) {
         let mut config = server::setup().unwrap();

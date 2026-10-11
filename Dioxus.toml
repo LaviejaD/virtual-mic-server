@@ -1,3 +1,6 @@
+[bundle]
+identifier = "com.virtual-mic-server"
+publisher = "onlyd"
 [application]
 
 [web.app]

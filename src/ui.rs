@@ -19,7 +19,6 @@ pub fn run() {
 #[component]
 fn App() -> Element {
     let mut config = use_hook(|| server::setup().unwrap());
-    println!("{:#?}", config);
     let sender = use_hook(|| {
         let (_handle, sender) = server::start(config.clone()).unwrap();
         sender

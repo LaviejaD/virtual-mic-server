@@ -50,14 +50,11 @@ pub fn setup() -> Result<ServerConfig, ()> {
             PREFERRED_PORT
         }
 
-        Err(_) => {
-            println!("hola ?");
-            std::net::TcpListener::bind("127.0.0.1:0")
-                .unwrap()
-                .local_addr()
-                .unwrap()
-                .port()
-        }
+        Err(_) => std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port(),
     };
     Ok(ServerConfig {
         ping: utils::generate_pin(6),
