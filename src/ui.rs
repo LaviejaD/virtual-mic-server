@@ -2,6 +2,7 @@ use crate::events;
 use crate::server;
 use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
+static CSS: Asset = asset!("/assets/main.css");
 
 pub fn run() {
     dioxus::LaunchBuilder::new()
@@ -17,9 +18,8 @@ pub fn run() {
 
 #[component]
 fn App() -> Element {
-    // server::start() se ejecuta UNA sola vez en la vida del componente.
-    let mut config = server::setup().unwrap();
-    config.ping = "123".to_string();
+    let mut config = use_hook(|| server::setup().unwrap());
+    println!("{:#?}", config);
     let sender = use_hook(|| {
         let (_handle, sender) = server::start(config.clone()).unwrap();
         sender
@@ -28,10 +28,15 @@ fn App() -> Element {
     let tr = use_signal(|| sender);
     let mut running = use_signal(|| false);
 
-    let ping = config.ping.clone();
+    let mut ping = use_signal(|| config.ping.clone());
     let ip = config.ip.to_string();
+    let port = config.port;
 
     let toggle = move |_| {
+        if ping.to_string() != config.ping.clone() {
+            config.ping = ping.to_string();
+            let _ = tr().try_send(events::ServerEvents::Pin(config.ping.clone()));
+        }
         if running() {
             let _ = tr().try_send(events::ServerEvents::Pause);
             running.set(false);
@@ -49,6 +54,7 @@ fn App() -> Element {
     };
 
     rsx! {
+        document::Stylesheet { href: CSS }
         div {
             style: "
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -103,14 +109,15 @@ fn App() -> Element {
                     ",
                     "PIN"
                 }
-                div {
+                input { oninput: move |event| { ping.set(event.data().value() )},
+                    type: "text",
                     style: "
                         font-family: 'SF Mono', 'Consolas', monospace;
                         font-size: 32px; letter-spacing: 8px;
                         font-weight: 600; color: #38bdf8;
                         padding-left: 8px;
                     ",
-                    "{ping}"
+                    value:"{ping}"
                 }
             }
 
@@ -131,7 +138,7 @@ fn App() -> Element {
                         font-size: 13px; color: #cbd5e1;
                         word-break: break-all;
                     ",
-                    "wss://{ip}"
+                    "wss://{ip}:{port}"
                 }
             }
 

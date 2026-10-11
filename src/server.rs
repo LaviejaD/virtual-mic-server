@@ -11,10 +11,11 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ServerConfig {
     pub ping: String,
     pub ip: IpAddr,
+    pub port: u16,
 }
 /// Esta funcion se llama por defecto cuando se inicia la aplicacion
 /// carga las configuraciones y permite ser un puente entre dioxus y el hilo del servidor
@@ -42,16 +43,33 @@ pub fn setup() -> Result<ServerConfig, ()> {
             return Err(());
         }
     };
+
+    let port = match std::net::TcpListener::bind((ip, PREFERRED_PORT)) {
+        Ok(l) => {
+            drop(l);
+            PREFERRED_PORT
+        }
+
+        Err(_) => {
+            println!("hola ?");
+            std::net::TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port()
+        }
+    };
     Ok(ServerConfig {
         ping: utils::generate_pin(6),
         ip,
+        port,
     })
 }
 /// Inicia el servidor
 /// config: son las configuraciones basicas para el servidor
 /// events: esto es opcional para poder elejir si el servidor acepta eventos del frontend o no
 pub fn run(
-    config: ServerConfig,
+    mut config: ServerConfig,
     events: Option<tokio::sync::mpsc::Receiver<events::ServerEvents>>,
 ) -> Result<(), ()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -70,15 +88,15 @@ pub fn run(
         let tls_acceptor = TlsAcceptor::from(Arc::clone(&tls_config));
 
         // Enlazar.
-        let listener = match TcpListener::bind((config.ip, PREFERRED_PORT)).await {
+        let listener = match TcpListener::bind((config.ip, config.port)).await {
             Ok(listener) => {
-                info!("Escuchando en {}:{}", config.ip, PREFERRED_PORT);
+                info!("Escuchando en {}:{}", config.ip, config.port);
                 listener
             }
             Err(e) => {
                 warn!(
                     "No se pudo enlazar al puerto {}: {}. Intentando con puerto automático.",
-                    PREFERRED_PORT, e
+                    config.port, e
                 );
                 let listener = match TcpListener::bind((config.ip, 0)).await {
                     Ok(r) => r,
@@ -120,16 +138,24 @@ pub fn run(
         // Esto maneja los eventos provenientes del la parte de dioxus
         if let Some(mut receiver) = events {
             let mut lsr = false;
+            let mut joinhandle: Vec<tokio::task::JoinHandle<()>> = vec![];
             loop {
                 tokio::select! {
                 event = receiver.recv() => {
                     match event {
                             Some(events::ServerEvents::Start) => {
                                 lsr = true;
-                                }
+                                },
                             Some(events::ServerEvents::Pause) => {
+
                                 lsr = false;
-                                }
+                                for j in &joinhandle {
+                                j.abort();
+                                };
+                                #[allow(unused_must_use)]
+                                &joinhandle.clear();
+                                },
+                                Some(events::ServerEvents::Pin(e))=> config.ping = e ,
                             Some(events::ServerEvents::Stop) => {
                                 break
                                 },
@@ -143,11 +169,12 @@ pub fn run(
                 result =  listener.accept(), if lsr  => {
                             match result {
                                 Ok((tcp_stream,peer )) => {
+                                    joinhandle.push(
                                 lister(tls_acceptor.clone(),
                                     tcp_stream,
                                     peer.clone(),
                                     config.clone()
-                                );
+                                ));
                             },
                             Err(_) => error!("error en escuchar la nose :D")
                             }
@@ -179,12 +206,12 @@ fn lister(
     tcp_stream: TcpStream,
     peer: SocketAddr,
     config: ServerConfig,
-) {
+) -> tokio::task::JoinHandle<()> {
     info!("Conexión TCP aceptada de {}", peer);
     let acceptor = tls_acceptor.clone();
     let pin = config.ping.clone();
 
-    tokio::spawn(async move {
+    let r = tokio::spawn(async move {
         // 1) Handshake TLS
         let tls_stream = match acceptor.accept(tcp_stream).await {
             Ok(s) => s,
@@ -200,4 +227,5 @@ fn lister(
             error!("Error manejando conexión de {}: {:?}", peer, e);
         }
     });
+    r
 }

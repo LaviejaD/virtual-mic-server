@@ -21,6 +21,9 @@ hmac = "0.13.0"
 sha2 = "0.11.0"
 dirs = "7.0.0"
 dioxus = "0.7.10"
+[profile.dev]
+debug = "line-tables-only"
+
 [features]
 default = ["desktop"]
 web = ["dioxus/web"]

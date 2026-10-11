@@ -9,4 +9,5 @@ pub enum ServerEvents {
     Stop,
     Start,
     Pause,
+    Pin(String),
 }
